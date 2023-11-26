@@ -1,5 +1,6 @@
 {
     "en": {
+        "buy_description":"Buy more budget",
         "help_description":"Show help message",
         "reset_description":"Reset the conversation. Optionally pass high-level instructions (e.g. /reset You are a helpful assistant)",
         "image_description":"Generate image from prompt (e.g. /image cat)",
@@ -49,6 +50,7 @@
         "function_unavailable_in_inline_mode": "This function is unavailable in inline mode"
     },
     "es": {
+        "buy_description":"Compra más presupuesto",
         "help_description":"Muestra el mensaje de ayuda",
         "reset_description":"Reinicia la conversación. Opcionalmente, pasa instrucciones de alto nivel (por ejemplo, /reset Eres un asistente útil)",
         "image_description":"Genera una imagen a partir de una sugerencia (por ejemplo, /image gato)",
@@ -96,6 +98,7 @@
         "function_unavailable_in_inline_mode": "Esta función no está disponible en el modo inline"
     },
     "pt-br": {
+        "buy_description":"Compre mais orçamento",
         "help_description": "Mostra a mensagem de ajuda",
         "reset_description": "Redefine a conversa. Opcionalmente, passe instruções de alto nível (por exemplo, /reset Você é um assistente útil)",
         "image_description": "Gera uma imagem a partir do prompt (por exemplo, /image gato)",
@@ -143,6 +146,7 @@
         "function_unavailable_in_inline_mode": "Esta função não está disponível no modo inline"
     },
     "de": {
+        "buy_description":"Kaufe mehr Budget",
         "help_description":"Zeige die Hilfenachricht",
         "reset_description":"Setze die Konversation zurück. Optionale Eingabe einer grundlegenden Anweisung (z.B. /reset Du bist ein hilfreicher Assistent)",
         "image_description":"Erzeuge ein Bild aus einer Aufforderung (z.B. /image Katze)",
@@ -190,6 +194,7 @@
         "function_unavailable_in_inline_mode": "Diese Funktion ist im Inline-Modus nicht verfügbar"
     },
     "fi": {
+        "buy_description":"Osta lisää budjettia",
         "help_description":"Näytä ohjeet",
         "reset_description":"Nollaa keskustelu. Voit myös antaa korkean tason ohjeita (esim. /reset Olet avulias avustaja)",
         "image_description":"Luo kuva tekstistä (esim. /image kissa)",
@@ -237,6 +242,7 @@
         "function_unavailable_in_inline_mode": "Tämä toiminto ei ole käytettävissä sisäisessä tilassa"
     },
     "ru": {
+        "buy_description":"Купить больше бюджета",
         "help_description":"Показать справочное сообщение",
         "reset_description":"Перезагрузить разговор. По желанию передай общие инструкции (например, /reset ты полезный помощник)",
         "image_description":"Создать изображение по запросу (например, /image кошка)",
@@ -284,6 +290,7 @@
         "function_unavailable_in_inline_mode": "Эта функция недоступна в режиме inline"
     },
     "tr": {
+        "buy_description":"Daha fazla bütçe satın alın",
         "help_description":"Yardım mesajını göster",
         "reset_description":"Konuşmayı sıfırla. İsteğe bağlı olarak botun nasıl davranacağını belirleyin (Örneğin: /reset Sen yardımcı bir asistansın)",
         "image_description":"Verilen komuta göre görüntü üret (Örneğin /image kedi)",
@@ -331,6 +338,7 @@
         "function_unavailable_in_inline_mode": "Bu işlev inline modda kullanılamaz"
     },
     "it": {
+        "buy_description":"Compra più budget",
         "help_description":"Mostra il messaggio di aiuto",
         "reset_description":"Resetta la conversazione. Puoi anche specificare ulteriori istruzioni (ad esempio, /reset Sei un assistente utile).",
         "image_description":"Genera immagine da un testo (ad es. /image gatto)",
@@ -378,6 +386,7 @@
         "function_unavailable_in_inline_mode": "Questa funzione non è disponibile in modalità inline"
     },
     "id": {
+        "buy_description":"Beli lebih banyak anggaran",
         "help_description": "Menampilkan pesan bantuan",
         "reset_description": "Merestart percakapan. Opsional memasukkan instruksi tingkat tinggi (misalnya /reset Anda adalah asisten yang membantu)",
         "image_description": "Menghasilkan gambar dari input prompt (misalnya /image kucing)",
@@ -425,6 +434,7 @@
         "function_unavailable_in_inline_mode": "Fungsi ini tidak tersedia dalam mode inline"
     },
     "nl": {
+        "buy_description":"Koop meer budget",
         "help_description":"Toon uitleg",
         "reset_description":"Herstart het gesprek. Voeg eventueel instructies toe (bijv. /reset Je bent een behulpzame assistent)",
         "image_description":"Genereer een afbeelding van een prompt (bijv. /image kat)",
@@ -472,6 +482,7 @@
         "function_unavailable_in_inline_mode": "Deze functie is niet beschikbaar in de inline modus"
     },
     "zh-cn": {
+        "buy_description":"购买更多预算",
         "help_description":"显示帮助信息",
         "reset_description":"重置对话。可以选择传递高级指令（例如/reset 你是一个有用的助手）",
         "image_description":"根据提示生成图像（例如/image 猫）",
@@ -519,6 +530,7 @@
         "function_unavailable_in_inline_mode": "此功能在内联模式下不可用"
     },
     "zh-tw": {
+        "buy_description":"購買更多預算",
         "help_description":"顯示幫助訊息",
         "reset_description":"重設對話。可以選擇傳遞進階指令（例如 /reset 你是一個樂於助人的助手）",
         "image_description":"根據提示生成圖片（例如 /image 貓）",
@@ -566,6 +578,7 @@
         "function_unavailable_in_inline_mode": "此功能在內嵌模式下不可用"
     },
     "vi": {
+        "buy_description":"Mua thêm ngân sách",
         "help_description":"Hiển thị trợ giúp",
         "reset_description":"Đặt lại cuộc trò chuyện. Tùy ý chuyển hướng dẫn cấp cao (ví dụ: /reset Bạn là một trợ lý hữu ích)",
         "image_description":"Tạo hình ảnh từ câu lệnh (ví dụ: /image cat)",
@@ -613,6 +626,7 @@
         "function_unavailable_in_inline_mode": "Chức năng này không khả dụng trong chế độ nội tuyến"
     },
     "fa": {
+        "buy_description":"بیشتر بخرید",
         "help_description":"نمایش پیغام راهنما",
         "reset_description":"مکالمه را تنظیم مجدد کنید. به صورت اختیاری می‌توانید دستورالعمل های سطح بالا را ارسال کنید (به عنوان مثال /reset تو یک دستیار مفید هستی)",
         "image_description":"ایجاد تصویر بر اساس فرمان (به عنوان مثال /image گربه)",
@@ -660,6 +674,7 @@
         "function_unavailable_in_inline_mode": "این عملکرد در حالت آنلاین در دسترس نیست"
     },
     "uk": {
+        "buy_description":"Купити більше бюджету",
         "help_description":"Показати повідомлення допомоги",
         "reset_description":"Скинути розмову. Опціонально передайте високорівневі інструкції (наприклад, /reset Ви корисний помічник)",
         "image_description":"Створити зображення за вашим запитом (наприклад, /image кіт)",
@@ -707,6 +722,7 @@
         "function_unavailable_in_inline_mode": "Ця функція недоступна в режимі Inline"
     },
     "ms": {
+        "buy_description":"Beli lebih banyak bajet",
         "help_description":"Lihat Mesej Bantuan",
         "reset_description":"Tetapkan semula perbualan. Secara pilihan, hantar arahan peringkat tinggi (cth. /reset Anda adalah pembantu yang membantu)",
         "image_description":"Jana imej daripada gesaan (cth. /image cat)",
@@ -754,6 +770,7 @@
         "function_unavailable_in_inline_mode": "Fungsi ini tidak tersedia dalam mod sebaris"
     },
     "uz": {
+        "buy_description":"Budjetni ko'paytirish",
         "help_description": "Yordam xabarini ko'rsatish",
         "reset_description": "Suhbatni qayta boshlang. Agar xohlasangiz, umumiy ko'rsatmalar bering (masalan, /reset siz foydali yordamchisiz)",
         "image_description": "Tasvirni so'rov bo'yicha yaratish (masalan, /image mushuk)",
