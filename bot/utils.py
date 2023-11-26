@@ -11,7 +11,7 @@ import requests
 from packaging import version
 import openai
 from openai import OpenAI
-from assistant_prompts import assistant_instructions
+
 
 import telegram
 from telegram import Message, MessageEntity, Update, ChatMember, constants

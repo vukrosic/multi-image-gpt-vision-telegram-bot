@@ -74,7 +74,7 @@ class UsageTracker:
             airtable_api_key = os.getenv("AIRTABLE_API_KEY")
             airtable_base_id = os.getenv("AIRTABLE_BASE_ID")
             airtable_table_id= os.getenv("AIRTABLE_TABLE_ID")
-            free_trial_budget = os.getenv("FREE_TRIAL_BUDGET")
+            free_trial_budget = os.getenv("FREE_TRIAL_BUDGET", 0.00)
 
             if airtable_api_key and airtable_base_id:
                 # Make a request to add a new record to Airtable
