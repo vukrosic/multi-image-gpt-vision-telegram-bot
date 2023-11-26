@@ -1,3 +1,8 @@
+### This README file is from the [github repo](https://github.com/n3d1117/chatgpt-telegram-bot) I cloned to make this chatbot, some of it is correct but I made some changes to the code, for tutorial on using my modified bot, please watch my video.
+
+----
+
+
 # ChatGPT Telegram Bot
 ![python-version](https://img.shields.io/badge/python-3.9-blue.svg)
 [![openai-version](https://img.shields.io/badge/openai-0.27.8-orange.svg)](https://openai.com/)
