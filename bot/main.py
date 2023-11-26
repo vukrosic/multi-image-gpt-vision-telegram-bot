@@ -92,7 +92,7 @@ def main():
         'ignore_group_transcriptions': os.environ.get('IGNORE_GROUP_TRANSCRIPTIONS', 'true').lower() == 'true',
         'ignore_group_vision': os.environ.get('IGNORE_GROUP_VISION', 'true').lower() == 'true',
         'group_trigger_keyword': os.environ.get('GROUP_TRIGGER_KEYWORD', ''),
-        'token_price': float(os.environ.get('TOKEN_PRICE', 0.002)),
+        'token_price': float(os.environ.get('TOKEN_PRICE_GPT_3.5_TURBO', 0.002)),
         'image_prices': [float(i) for i in os.environ.get('IMAGE_PRICES', "0.016,0.018,0.02").split(",")],
         'vision_token_price': float(os.environ.get('VISION_TOKEN_PRICE', '0.01')),
         'image_receive_mode': os.environ.get('IMAGE_FORMAT', "photo"),

@@ -6,12 +6,13 @@ import os
 import io
 
 from uuid import uuid4
-from telegram import BotCommandScopeAllGroupChats, Update, constants
+from telegram import BotCommandScopeAllGroupChats, Update, constants, LabeledPrice
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton, InlineQueryResultArticle
 from telegram import InputTextMessageContent, BotCommand
+from telegram import PreCheckoutQuery
 from telegram.error import RetryAfter, TimedOut, BadRequest
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, \
-    filters, InlineQueryHandler, CallbackQueryHandler, Application, ContextTypes, CallbackContext
+    filters, InlineQueryHandler, CallbackQueryHandler, Application, ContextTypes, CallbackContext, PreCheckoutQueryHandler
 
 from pydub import AudioSegment
 from PIL import Image
@@ -19,7 +20,7 @@ from PIL import Image
 from utils import is_group_chat, get_thread_id, message_text, wrap_with_indicator, split_into_chunks, \
     edit_message_with_retry, get_stream_cutoff_values, is_allowed, get_remaining_budget, is_admin, is_within_budget, \
     get_reply_to_message_id, add_chat_request_to_usage_tracker, error_handler, is_direct_result, handle_direct_result, \
-    cleanup_intermediate_files
+    cleanup_intermediate_files, add_airtable_budget
 from openai_helper import OpenAIHelper, localized_text
 from usage_tracker import UsageTracker
 
@@ -39,6 +40,7 @@ class ChatGPTTelegramBot:
         self.openai = openai
         bot_language = self.config['bot_language']
         self.commands = [
+            BotCommand(command='buy', description=localized_text('resend_description', bot_language)),
             BotCommand(command='help', description=localized_text('help_description', bot_language)),
             BotCommand(command='reset', description=localized_text('reset_description', bot_language)),
             BotCommand(command='stats', description=localized_text('stats_description', bot_language)),
@@ -59,6 +61,64 @@ class ChatGPTTelegramBot:
         self.usage = {}
         self.last_message = {}
         self.inline_queries_cache = {}
+        
+
+    async def buy(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """
+        Sends an invoice to the user for purchasing credits.
+        """
+        try:
+            # Set up the invoice parameters
+            payload = "custom_payload"  # You can customize this
+            provider_token = "284685063:TEST:MjI4MjI4NDU2ODRh"
+            currency = "USD"
+
+            # Fetch payment options from environment variable
+            payment_options_str = os.getenv("PAYMENT_OPTIONS", "5,10,20")
+            payment_options = [int(option) for option in payment_options_str.split(",")]
+
+            for option in payment_options:
+                # Set up the invoice parameters dynamically based on the current option
+                title = f"${option} Budget"
+                description = f"Buy ${option} credits to use with all of our models!"
+
+                prices = [LabeledPrice(label='Credits', amount=option * 100)]  # Amount in cents (e.g., $10.00 is 1000 cents)
+
+                # Send the invoice
+                await context.bot.send_invoice(
+                    chat_id=update.effective_chat.id,
+                    title=title,
+                    description=description,
+                    payload=payload,
+                    provider_token=provider_token,
+                    currency=currency,
+                    prices=prices,
+                    start_parameter="optional_start_parameter",
+                    reply_markup=InlineKeyboardMarkup(
+                        [[InlineKeyboardButton(f"Pay ${option} Now", pay=True)]]
+                    ),
+                )
+
+        except Exception as e:
+            logging.exception(e)
+            await update.message.reply_text(
+                message_thread_id=get_thread_id(update),
+                text=f"Error sending invoice: {str(e)}",
+            )
+
+    async def pre_checkout_callback(self, update: Update, context: CallbackContext):
+        """
+        Handle pre-checkout queries.
+        """
+        query: PreCheckoutQuery = update.pre_checkout_query
+        user_id = query.from_user.id
+        add_airtable_budget(user_id=user_id, user_name=query.from_user.name, amount_to_increase=query.total_amount / 100)
+        payload = query.invoice_payload
+        # Check the payload and perform any necessary actions
+        # For example, you might want to update the user's data or mark the invoice as paid
+
+
+        await query.answer(ok=True)
 
     async def help(self, update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         """
@@ -1055,7 +1115,8 @@ class ChatGPTTelegramBot:
             .post_init(self.post_init) \
             .concurrent_updates(True) \
             .build()
-
+        
+        application.add_handler(CommandHandler('buy', self.buy))
         application.add_handler(CommandHandler('reset', self.reset))
         application.add_handler(CommandHandler('help', self.help))
         application.add_handler(CommandHandler('image', self.image))
@@ -1074,6 +1135,7 @@ class ChatGPTTelegramBot:
             filters.VIDEO | filters.VIDEO_NOTE | filters.Document.VIDEO,
             self.transcribe))
         application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), self.prompt))
+        application.add_handler(PreCheckoutQueryHandler(self.pre_checkout_callback))
         application.add_handler(InlineQueryHandler(self.inline_query, chat_types=[
             constants.ChatType.GROUP, constants.ChatType.SUPERGROUP, constants.ChatType.PRIVATE
         ]))

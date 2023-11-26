@@ -1,6 +1,7 @@
 import os.path
 import pathlib
 import json
+import requests
 from datetime import date
 
 
@@ -69,6 +70,39 @@ class UsageTracker:
                 "current_cost": {"day": 0.0, "month": 0.0, "all_time": 0.0, "last_update": str(date.today())},
                 "usage_history": {"chat_tokens": {}, "transcription_seconds": {}, "number_images": {}, "tts_characters": {}, "vision_tokens":{}}
             }
+            # Check if Airtable credentials are provided in the environment variables
+            airtable_api_key = os.getenv("AIRTABLE_API_KEY")
+            airtable_base_id = os.getenv("AIRTABLE_BASE_ID")
+            airtable_table_id= os.getenv("AIRTABLE_TABLE_ID")
+            free_trial_budget = os.getenv("FREE_TRIAL_BUDGET")
+
+            if airtable_api_key and airtable_base_id:
+                # Make a request to add a new record to Airtable
+                airtable_url = f'https://api.airtable.com/v0/{airtable_base_id}/{airtable_table_id}'
+                headers = {
+                    'Authorization': f'Bearer {airtable_api_key}',
+                    'Content-Type': 'application/json',
+                }
+                data = {
+                    "records": [
+                        {
+                            "fields": {
+                                "Telegram User ID": int(user_id),
+                                "Telegram Username": user_name,
+                                "Available Budget": float(free_trial_budget),
+                                "Total Budget By Now": float(free_trial_budget),
+                                "Usage Tracker JSON": json.dumps(self.usage)
+                            }
+                        }
+                    ]
+                }
+                response = requests.post(airtable_url, headers=headers, json=data)
+
+                if response.status_code == 200:
+                    print(f"User {user_name} (ID: {user_id}) added to Airtable.")
+                else:
+                    print(f"Error adding user {user_name} (ID: {user_id}) to Airtable. Status Code: {response.status_code}")
+
 
     # token usage functions:
 
@@ -362,3 +396,5 @@ class UsageTracker:
 
         all_time_cost = token_cost + transcription_cost + image_cost + vision_cost + tts_cost
         return all_time_cost
+
+

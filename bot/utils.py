@@ -6,10 +6,18 @@ import json
 import logging
 import os
 import base64
+import requests
+
+from packaging import version
+import openai
+from openai import OpenAI
+from assistant_prompts import assistant_instructions
 
 import telegram
 from telegram import Message, MessageEntity, Update, ChatMember, constants
 from telegram.ext import CallbackContext, ContextTypes
+
+import requests
 
 from usage_tracker import UsageTracker
 
@@ -205,25 +213,62 @@ def get_user_budget(config, user_id) -> float | None:
     """
 
     # no budget restrictions for admins and '*'-budget lists
-    if is_admin(config, user_id) or config['user_budgets'] == '*':
-        return float('inf')
+    # if is_admin(config, user_id) or config['user_budgets'] == '*':
+    #     return float('inf')
 
-    user_budgets = config['user_budgets'].split(',')
-    if config['allowed_user_ids'] == '*':
-        # same budget for all users, use value in first position of budget list
-        if len(user_budgets) > 1:
-            logging.warning('multiple values for budgets set with unrestricted user list '
-                            'only the first value is used as budget for everyone.')
-        return float(user_budgets[0])
 
-    allowed_user_ids = config['allowed_user_ids'].split(',')
-    if str(user_id) in allowed_user_ids:
-        user_index = allowed_user_ids.index(str(user_id))
-        if len(user_budgets) <= user_index:
-            logging.warning(f'No budget set for user id: {user_id}. Budget list shorter than user list.')
-            return 0.0
-        return float(user_budgets[user_index])
-    return None
+    # user_budgets = config['user_budgets'].split(',')
+    # if config['allowed_user_ids'] == '*':
+    #     # same budget for all users, use value in first position of budget list
+    #     if len(user_budgets) > 1:
+    #         logging.warning('multiple values for budgets set with unrestricted user list '
+    #                         'only the first value is used as budget for everyone.')
+    #     return float(user_budgets[0])
+
+    # allowed_user_ids = config['allowed_user_ids'].split(',')
+    # if str(user_id) in allowed_user_ids:
+    #     user_index = allowed_user_ids.index(str(user_id))
+    #     if len(user_budgets) <= user_index:
+    #         logging.warning(f'No budget set for user id: {user_id}. Budget list shorter than user list.')
+    #         return 0.0
+    #     return float(user_budgets[user_index])
+    # return None
+
+    # Call Airtable to get budget
+
+    # Airtable credentials
+    airtable_api_key = os.getenv("AIRTABLE_API_KEY")
+    airtable_base_id = os.getenv("AIRTABLE_BASE_ID")
+    airtable_table_id = os.getenv("AIRTABLE_TABLE_ID")
+
+    # Airtable API endpoint
+    airtable_url = f'https://api.airtable.com/v0/{airtable_base_id}/{airtable_table_id}'
+
+    # Headers for the API request
+    headers = {
+        'Authorization': f'Bearer {airtable_api_key}',
+        'Content-Type': 'application/json',
+    }
+
+    # Query parameters to filter records by Telegram User ID
+    params = {
+        'filterByFormula': f"{{Telegram User ID}} = '{user_id}'",
+        'maxRecords': 1  # Assuming there is only one record per user
+    }
+
+    # Perform the GET request to list records
+    list_response = requests.get(airtable_url, headers=headers, params=params)
+
+    if list_response.status_code == 200:
+
+        records = list_response.json().get('records', [])
+
+        if records:
+            return float(records[0]['fields']['Available Budget'])
+        else:
+            print(f"No record found for user {user_id}).")
+    else:
+        print(f"Error listing records. Status Code: {list_response.status_code}")
 
 
 def get_remaining_budget(config, usage, update: Update, is_inline=False) -> float:
@@ -252,6 +297,8 @@ def get_remaining_budget(config, usage, update: Update, is_inline=False) -> floa
     budget_period = config['budget_period']
     if user_budget is not None:
         cost = usage[user_id].get_current_cost()[budget_cost_map[budget_period]]
+        # log user budget and cost
+        logging.info(f'get_remaining_budet: User {name} (id: {user_id}) has {user_budget} tokens in {budget_period} budget with cost {cost}')
         return user_budget - cost
 
     # Get budget for guests
@@ -276,6 +323,13 @@ def is_within_budget(config, usage, update: Update, is_inline=False) -> bool:
     if user_id not in usage:
         usage[user_id] = UsageTracker(user_id, name)
     remaining_budget = get_remaining_budget(config, usage, update, is_inline=is_inline)
+    if(remaining_budget <= 0):
+        logging.info(f'User {name} (id: {user_id}) has reached their budget of {config["budget_period"]} '
+                     f'budget of {config["user_budgets"]}.')
+    else:
+        logging.info(f'User {name} (id: {user_id}) has {remaining_budget} tokens left'
+                     f'budget of {config["user_budgets"]}.')
+        update_airtable_available_budget(user_id, name, remaining_budget)
     return remaining_budget > 0
 
 
@@ -388,3 +442,164 @@ def encode_image(fileobj):
 def decode_image(imgbase64):
     image = imgbase64[len('data:image/jpeg;base64,'):]
     return base64.b64decode(image)
+
+
+# Get Airtable credentials
+def get_airtable_credentials():
+    airtable_api_key = os.getenv("AIRTABLE_API_KEY")
+    airtable_base_id = os.getenv("AIRTABLE_BASE_ID")
+    airtable_table_id = os.getenv("AIRTABLE_TABLE_ID")
+    return airtable_api_key, airtable_base_id, airtable_table_id
+
+# Get Airtable record by user ID
+def get_airtable_record(user_id):
+    airtable_api_key, airtable_base_id, airtable_table_id = get_airtable_credentials()
+
+    # Airtable API endpoint
+    airtable_url = f'https://api.airtable.com/v0/{airtable_base_id}/{airtable_table_id}'
+
+    # Headers for the API request
+    headers = {
+        'Authorization': f'Bearer {airtable_api_key}',
+        'Content-Type': 'application/json',
+    }
+
+    # Query parameters to filter records by Telegram User ID
+    params = {
+        'filterByFormula': f"{{Telegram User ID}} = '{user_id}'",
+        'maxRecords': 1  # Assuming there is only one record per user
+    }
+
+    # Perform the GET request to list records
+    list_response = requests.get(airtable_url, headers=headers, params=params)
+
+    if list_response.status_code == 200:
+        records = list_response.json().get('records', [])
+        return records
+    else:
+        print(f"Error listing records. Status Code: {list_response.status_code}")
+        return None
+
+# Update Airtable record with available budget
+def update_airtable_available_budget(user_id, user_name, available_budget):
+    records = get_airtable_record(user_id)
+    airtable_api_key, airtable_base_id, airtable_table_id = get_airtable_credentials()
+
+    if records:
+        # Use the ID of the first record (assuming only one record per user)
+        record_id = records[0]['id']
+        logging.info(f'available_budget: {available_budget}')
+        # Fields to be updated
+        record_fields = {
+            "Available Budget": float(available_budget)
+        }
+
+        # Airtable API endpoint
+        airtable_url = f'https://api.airtable.com/v0/{airtable_base_id}/{airtable_table_id}'
+
+        # Headers for the PATCH request
+        headers = {
+            'Authorization': f'Bearer {airtable_api_key}',
+            'Content-Type': 'application/json',
+        }
+
+        # Payload for the PATCH request
+        payload = {
+            "records": [
+                {
+                    "id": record_id,
+                    "fields": record_fields
+                }
+            ]
+        }
+
+        # Perform the PATCH request
+        update_response = requests.patch(airtable_url, headers=headers, json=payload)
+
+        if update_response.status_code == 200:
+            print(f"Record for user {user_name} (ID: {user_id}) updated successfully.")
+        else:
+            print(f"Error updating record for user {user_name} (ID: {user_id}). Status Code: {update_response.status_code}")
+    else:
+        print(f"No record found for user {user_name} (ID: {user_id}).")
+
+
+# Increase Airtable budget by a specified amount
+def add_airtable_budget(user_id, user_name, amount_to_increase):
+
+    records = get_airtable_record(user_id)
+
+    if records:
+        existing_budget = records[0].get('fields', {}).get('Available Budget', 0.0)
+        new_budget = existing_budget + amount_to_increase
+
+        update_airtable_available_budget(user_id, user_name, new_budget)
+    else:
+        print(f"No record found for user {user_name} (ID: {user_id}).")
+
+
+# # Create or load assistant
+# def create_openai_assistant(client):
+  
+#   OPENAI_API_KEY = os.environ['OPENAI_API_KEY'] # replace with yours in secrets
+
+#   required_version = version.parse("1.1.1")
+#   current_version = version.parse(openai.__version__)
+#   OPENAI_API_KEY = os.environ['OPENAI_API_KEY'] # replace with yours in secrets
+#   if current_version < required_version:
+#     raise ValueError(
+#         f"Error: OpenAI version {openai.__version__} is less than the required version 1.1.1"
+#     )
+#   else:
+#     print("OpenAI version is compatible.")
+
+#   # Init OpenAI Client
+#   client = OpenAI(api_key=OPENAI_API_KEY)
+
+#   assistant_file_path = 'assistant.json'
+  
+
+#   # If there is an assistant.json file already, then load that assistant
+#   if os.path.exists(assistant_file_path):
+#     with open(assistant_file_path, 'r') as file:
+#       assistant_data = json.load(file)
+#       assistant_id = assistant_data['assistant_id']
+#       print("Loaded existing assistant ID.")
+#   else:
+#     # If no assistant.json is present, create a new assistant using the below specifications
+
+#     # To change the knowledge document, modify the file name below to match your document
+#     # If you want to add multiple files, paste this function into ChatGPT and ask for it to add support for multiple files
+#     file = client.files.create(file=open("knowledge.docx", "rb"),
+#                                purpose='assistants')
+
+#     assistant = client.beta.assistants.create(
+#         # Change prompting in prompts.py file
+#         instructions=assistant_instructions,
+#         model="gpt-4-1106-preview",
+#         tools=[{
+#             "type": "retrieval"  # This adds the knowledge base as a tool
+#         }],
+#         file_ids=[file.id])
+
+#     # Create a new assistant.json file to load on future runs
+#     with open(assistant_file_path, 'w') as file:
+#       json.dump({'assistant_id': assistant.id}, file)
+#       print("Created a new assistant and saved the ID.")
+
+#     assistant_id = assistant.id
+
+#   return assistant_id
+
+# def create_thread():
+
+#   platform = request.args.get(
+#       'platform', 'Not Specified')  # 'Not Specified' is a default value
+
+#   thread = client.beta.threads.create()
+#   print("New conversation started with thread ID:", thread.id)
+
+#   # Assuming 'add_thread' function takes 'thread_id' and 'platform'
+#   functions.add_thread(thread_id=thread.id, platform=platform)
+
+#   return jsonify({"thread_id": thread.id})
