@@ -297,8 +297,6 @@ def get_remaining_budget(config, usage, update: Update, is_inline=False) -> floa
     budget_period = config['budget_period']
     if user_budget is not None:
         cost = usage[user_id].get_current_cost()[budget_cost_map[budget_period]]
-        # log user budget and cost
-        logging.info(f'get_remaining_budet: User {name} (id: {user_id}) has {user_budget} tokens in {budget_period} budget with cost {cost}')
         return user_budget - cost
 
     # Get budget for guests
@@ -323,18 +321,12 @@ def is_within_budget(config, usage, update: Update, is_inline=False) -> bool:
     if user_id not in usage:
         usage[user_id] = UsageTracker(user_id, name)
     remaining_budget = get_remaining_budget(config, usage, update, is_inline=is_inline)
-    if(remaining_budget <= 0):
-        logging.info(f'User {name} (id: {user_id}) has reached their budget of {config["budget_period"]} '
-                     f'budget of {config["user_budgets"]}.')
-    else:
-        logging.info(f'User {name} (id: {user_id}) has {remaining_budget} tokens left'
-                     f'budget of {config["user_budgets"]}.')
-        update_airtable_available_budget(user_id, name, remaining_budget)
     return remaining_budget > 0
 
 
 def add_chat_request_to_usage_tracker(usage, config, user_id, used_tokens):
     """
+    Returns price.
     Add chat request to usage tracker
     :param usage: The usage tracker object
     :param config: The bot configuration object
@@ -346,11 +338,12 @@ def add_chat_request_to_usage_tracker(usage, config, user_id, used_tokens):
             logging.warning('No tokens used. Not adding chat request to usage tracker.')
             return
         # add chat request to users usage tracker
-        usage[user_id].add_chat_tokens(used_tokens, config['token_price'])
+        price = usage[user_id].add_chat_tokens(used_tokens, config['token_price'])
         # add guest chat request to guest usage tracker
         allowed_user_ids = config['allowed_user_ids'].split(',')
         if str(user_id) not in allowed_user_ids and 'guests' in usage:
             usage["guests"].add_chat_tokens(used_tokens, config['token_price'])
+        return price
     except Exception as e:
         logging.warning(f'Failed to add tokens to usage_logs: {str(e)}')
         pass
@@ -452,7 +445,7 @@ def get_airtable_credentials():
     return airtable_api_key, airtable_base_id, airtable_table_id
 
 # Get Airtable record by user ID
-def get_airtable_record(user_id):
+async def get_airtable_record(user_id):
     airtable_api_key, airtable_base_id, airtable_table_id = get_airtable_credentials()
 
     # Airtable API endpoint
@@ -481,14 +474,14 @@ def get_airtable_record(user_id):
         return None
 
 # Update Airtable record with available budget
-def update_airtable_available_budget(user_id, user_name, available_budget):
-    records = get_airtable_record(user_id)
+async def update_airtable_available_budget(user_id, user_name, available_budget):
+    records = await get_airtable_record(user_id)
     airtable_api_key, airtable_base_id, airtable_table_id = get_airtable_credentials()
 
     if records:
         # Use the ID of the first record (assuming only one record per user)
         record_id = records[0]['id']
-        logging.info(f'available_budget: {available_budget}')
+        logging.info(f'available_budget for {user_name}: {available_budget}')
         # Fields to be updated
         record_fields = {
             "Available Budget": float(available_budget)
@@ -525,18 +518,31 @@ def update_airtable_available_budget(user_id, user_name, available_budget):
 
 
 # Increase Airtable budget by a specified amount
-def add_airtable_budget(user_id, user_name, amount_to_increase):
+async def add_airtable_budget(user_id, user_name, amount_to_increase):
 
-    records = get_airtable_record(user_id)
+    records = await get_airtable_record(user_id)
 
     if records:
         existing_budget = records[0].get('fields', {}).get('Available Budget', 0.0)
         new_budget = existing_budget + amount_to_increase
 
-        update_airtable_available_budget(user_id, user_name, new_budget)
+        await update_airtable_available_budget(user_id, user_name, new_budget)
     else:
         print(f"No record found for user {user_name} (ID: {user_id}).")
 
+
+# Decrease Airtable budget by a specified amount
+async def subtract_airtable_budget(user_id, user_name, amount_to_decrease):
+    logging.info(f'{user_name} spent: {amount_to_decrease}')
+    records = await get_airtable_record(user_id)
+
+    if records:
+        existing_budget = records[0].get('fields', {}).get('Available Budget', 0.0)
+        new_budget = existing_budget - amount_to_decrease
+
+        await update_airtable_available_budget(user_id, user_name, new_budget)
+    else:
+        print(f"No record found for user {user_name} (ID: {user_id}).")
 
 # # Create or load assistant
 # def create_openai_assistant(client):

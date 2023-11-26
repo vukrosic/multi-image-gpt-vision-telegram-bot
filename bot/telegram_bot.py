@@ -20,7 +20,7 @@ from PIL import Image
 from utils import is_group_chat, get_thread_id, message_text, wrap_with_indicator, split_into_chunks, \
     edit_message_with_retry, get_stream_cutoff_values, is_allowed, get_remaining_budget, is_admin, is_within_budget, \
     get_reply_to_message_id, add_chat_request_to_usage_tracker, error_handler, is_direct_result, handle_direct_result, \
-    cleanup_intermediate_files, add_airtable_budget
+    cleanup_intermediate_files, add_airtable_budget, subtract_airtable_budget
 from openai_helper import OpenAIHelper, localized_text
 from usage_tracker import UsageTracker
 
@@ -112,7 +112,7 @@ class ChatGPTTelegramBot:
         """
         query: PreCheckoutQuery = update.pre_checkout_query
         user_id = query.from_user.id
-        add_airtable_budget(user_id=user_id, user_name=query.from_user.name, amount_to_increase=query.total_amount / 100)
+        await add_airtable_budget(user_id=user_id, user_name=query.from_user.name, amount_to_increase=query.total_amount / 100)
         payload = query.invoice_payload
         # Check the payload and perform any necessary actions
         # For example, you might want to update the user's data or mark the invoice as paid
@@ -329,11 +329,11 @@ class ChatGPTTelegramBot:
                     raise Exception(f"env variable IMAGE_RECEIVE_MODE has invalid value {self.config['image_receive_mode']}")
                 # add image request to users usage tracker
                 user_id = update.message.from_user.id
-                self.usage[user_id].add_image_request(image_size, self.config['image_prices'])
+                price = self.usage[user_id].add_image_request(image_size, self.config['image_prices'])
                 # add guest chat request to guest usage tracker
                 if str(user_id) not in self.config['allowed_user_ids'].split(',') and 'guests' in self.usage:
                     self.usage["guests"].add_image_request(image_size, self.config['image_prices'])
-
+                await subtract_airtable_budget(update.message.from_user.id, update.message.from_user.name, price)
             except Exception as e:
                 logging.exception(e)
                 await update.effective_message.reply_text(
@@ -375,10 +375,11 @@ class ChatGPTTelegramBot:
                 speech_file.close()
                 # add image request to users usage tracker
                 user_id = update.message.from_user.id
-                self.usage[user_id].add_tts_request(text_length, self.config['tts_model'], self.config['tts_prices'])
+                price = self.usage[user_id].add_tts_request(text_length, self.config['tts_model'], self.config['tts_prices'])
                 # add guest chat request to guest usage tracker
                 if str(user_id) not in self.config['allowed_user_ids'].split(',') and 'guests' in self.usage:
                     self.usage["guests"].add_tts_request(text_length, self.config['tts_model'], self.config['tts_prices'])
+                await subtract_airtable_budget(update.message.from_user.id, update.message.from_user.name, price)
 
             except Exception as e:
                 logging.exception(e)
@@ -449,12 +450,12 @@ class ChatGPTTelegramBot:
                 transcript = await self.openai.transcribe(filename_mp3)
 
                 transcription_price = self.config['transcription_price']
-                self.usage[user_id].add_transcription_seconds(audio_track.duration_seconds, transcription_price)
+                price = self.usage[user_id].add_transcription_seconds(audio_track.duration_seconds, transcription_price)
 
                 allowed_user_ids = self.config['allowed_user_ids'].split(',')
                 if str(user_id) not in allowed_user_ids and 'guests' in self.usage:
                     self.usage["guests"].add_transcription_seconds(audio_track.duration_seconds, transcription_price)
-
+                await subtract_airtable_budget(update.message.from_user.id, update.message.from_user.name, price)
                 # check if transcript starts with any of the prefixes
                 response_to_transcription = any(transcript.lower().startswith(prefix.lower()) if prefix else False
                                                 for prefix in self.config['voice_reply_prompts'])
@@ -476,10 +477,10 @@ class ChatGPTTelegramBot:
                     # Get the response of the transcript
                     response, total_tokens = await self.openai.get_chat_response(chat_id=chat_id, query=transcript)
 
-                    self.usage[user_id].add_chat_tokens(total_tokens, self.config['token_price'])
+                    price = self.usage[user_id].add_chat_tokens(total_tokens, self.config['token_price'])
                     if str(user_id) not in allowed_user_ids and 'guests' in self.usage:
                         self.usage["guests"].add_chat_tokens(total_tokens, self.config['token_price'])
-
+                    await subtract_airtable_budget(update.message.from_user.id, update.message.from_user.name, price)
                     # Split into chunks of 4096 characters (Telegram's message limit)
                     transcript_output = (
                         f"_{localized_text('transcript', bot_language)}:_\n\"{transcript}\"\n\n"
@@ -695,12 +696,12 @@ class ChatGPTTelegramBot:
                         parse_mode=constants.ParseMode.MARKDOWN
                     )
             vision_token_price = self.config['vision_token_price']
-            self.usage[user_id].add_vision_tokens(total_tokens, vision_token_price)
+            price = self.usage[user_id].add_vision_tokens(total_tokens, vision_token_price)
 
             allowed_user_ids = self.config['allowed_user_ids'].split(',')
             if str(user_id) not in allowed_user_ids and 'guests' in self.usage:
                 self.usage["guests"].add_vision_tokens(total_tokens, vision_token_price)
-
+            await subtract_airtable_budget(update.message.from_user.id, update.message.from_user.name, price)
         await wrap_with_indicator(update, context, _execute, constants.ChatAction.TYPING)
 
     async def prompt(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -857,7 +858,8 @@ class ChatGPTTelegramBot:
 
                 await wrap_with_indicator(update, context, _reply, constants.ChatAction.TYPING)
 
-            add_chat_request_to_usage_tracker(self.usage, self.config, user_id, total_tokens)
+            price = add_chat_request_to_usage_tracker(self.usage, self.config, user_id, total_tokens)
+            await subtract_airtable_budget(update.message.from_user.id, update.message.from_user.name, price)
 
         except Exception as e:
             logging.exception(e)
@@ -1037,7 +1039,8 @@ class ChatGPTTelegramBot:
                     await wrap_with_indicator(update, context, _send_inline_query_response,
                                               constants.ChatAction.TYPING, is_inline=True)
 
-                add_chat_request_to_usage_tracker(self.usage, self.config, user_id, total_tokens)
+                price = add_chat_request_to_usage_tracker(self.usage, self.config, user_id, total_tokens)
+                await subtract_airtable_budget(update.message.from_user.id, update.message.from_user.name, price)
 
         except Exception as e:
             logging.error(f'Failed to respond to an inline query via button callback: {e}')
@@ -1069,6 +1072,8 @@ class ChatGPTTelegramBot:
             return False
 
         return True
+
+
 
     async def send_disallowed_message(self, update: Update, _: ContextTypes.DEFAULT_TYPE, is_inline=False):
         """

@@ -127,6 +127,8 @@ class UsageTracker:
         with open(self.user_file, "w") as outfile:
             json.dump(self.usage, outfile)
 
+        return float(tokens) * tokens_price / 1000
+
     def get_current_token_usage(self):
         """Get token amounts used for today and this month
 
@@ -172,6 +174,8 @@ class UsageTracker:
         with open(self.user_file, "w") as outfile:
             json.dump(self.usage, outfile)
 
+        return image_cost
+
     def get_current_image_count(self):
         """Get number of images requested for today and this month.
 
@@ -192,7 +196,7 @@ class UsageTracker:
 
     # vision usage functions
     def add_vision_tokens(self, tokens, vision_token_price=0.01):
-        """
+        """Returns price.
          Adds requested vision tokens to a users usage history and updates current cost.
         :param tokens: total tokens used in last request
         :param vision_token_price: price per 1K tokens transcription, defaults to 0.01
@@ -212,6 +216,8 @@ class UsageTracker:
         # write updated token usage to user file
         with open(self.user_file, "w") as outfile:
             json.dump(self.usage, outfile)
+
+        return tokens * vision_token_price / 1000
 
     def get_current_vision_tokens(self):
         """Get vision tokens for today and this month.
@@ -233,6 +239,9 @@ class UsageTracker:
     # tts usage functions:
 
     def add_tts_request(self, text_length, tts_model, tts_prices):
+        """
+        Returns price of the generation. Add tts request to users usage history and update current costs.
+        """
         tts_models = ['tts-1', 'tts-1-hd']
         price = tts_prices[tts_models.index(tts_model)]
         today = date.today()
@@ -256,6 +265,8 @@ class UsageTracker:
         # write updated token usage to user file
         with open(self.user_file, "w") as outfile:
             json.dump(self.usage, outfile)
+        
+        return text_length * price / 1000
 
     def get_current_tts_usage(self):
         """Get length of speech generated for today and this month.
@@ -284,7 +295,7 @@ class UsageTracker:
     # transcription usage functions:
 
     def add_transcription_seconds(self, seconds, minute_price=0.006):
-        """Adds requested transcription seconds to a users usage history and updates current cost.
+        """Return price. Adds requested transcription seconds to a users usage history and updates current cost.
         :param seconds: total seconds used in last request
         :param minute_price: price per minute transcription, defaults to 0.006
         """
@@ -303,6 +314,8 @@ class UsageTracker:
         # write updated token usage to user file
         with open(self.user_file, "w") as outfile:
             json.dump(self.usage, outfile)
+
+        return seconds * minute_price / 60
 
     def add_current_costs(self, request_cost):
         """
