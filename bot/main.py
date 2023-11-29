@@ -66,12 +66,6 @@ def main():
         logging.error(f'ENABLE_FUNCTIONS is set to true, but the model {model} does not support it. '
                         f'Please set ENABLE_FUNCTIONS to false or use a model that supports it.')
         exit(1)
-    if os.environ.get('MONTHLY_USER_BUDGETS') is not None:
-        logging.warning('The environment variable MONTHLY_USER_BUDGETS is deprecated. '
-                        'Please use USER_BUDGETS with BUDGET_PERIOD instead.')
-    if os.environ.get('MONTHLY_GUEST_BUDGET') is not None:
-        logging.warning('The environment variable MONTHLY_GUEST_BUDGET is deprecated. '
-                        'Please use GUEST_BUDGET with BUDGET_PERIOD instead.')
 
     telegram_config = {
         'token': os.environ['TELEGRAM_BOT_TOKEN'],
@@ -82,9 +76,6 @@ def main():
         'enable_transcription': os.environ.get('ENABLE_TRANSCRIPTION', 'true').lower() == 'true',
         'enable_vision': os.environ.get('ENABLE_VISION', 'true').lower() == 'true',
         'enable_tts_generation': os.environ.get('ENABLE_TTS_GENERATION', 'true').lower() == 'true',
-        'budget_period': os.environ.get('BUDGET_PERIOD', 'monthly').lower(),
-        'user_budgets': os.environ.get('USER_BUDGETS', os.environ.get('MONTHLY_USER_BUDGETS', '*')),
-        'guest_budget': float(os.environ.get('GUEST_BUDGET', os.environ.get('MONTHLY_GUEST_BUDGET', '100.0'))),
         'stream': os.environ.get('STREAM', 'true').lower() == 'true',
         'proxy': os.environ.get('PROXY', None),
         'voice_reply_transcript': os.environ.get('VOICE_REPLY_WITH_TRANSCRIPT_ONLY', 'false').lower() == 'true',

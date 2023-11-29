@@ -1,3 +1,4 @@
+import logging
 import os.path
 import pathlib
 import json
@@ -53,7 +54,7 @@ class UsageTracker:
         self.logs_dir = logs_dir
         # path to usage file of given user
         self.user_file = f"{logs_dir}/{user_id}.json"
-
+        logging.info("IS FILE: " + str(os.path.isfile(self.user_file)))
         if os.path.isfile(self.user_file):
             with open(self.user_file, "r") as file:
                 self.usage = json.load(file)

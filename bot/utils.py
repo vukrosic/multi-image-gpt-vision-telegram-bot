@@ -212,28 +212,6 @@ def get_user_budget(config, user_id) -> float | None:
     :return: The user's budget as a float, or None if the user is not found in the allowed user list
     """
 
-    # no budget restrictions for admins and '*'-budget lists
-    # if is_admin(config, user_id) or config['user_budgets'] == '*':
-    #     return float('inf')
-
-
-    # user_budgets = config['user_budgets'].split(',')
-    # if config['allowed_user_ids'] == '*':
-    #     # same budget for all users, use value in first position of budget list
-    #     if len(user_budgets) > 1:
-    #         logging.warning('multiple values for budgets set with unrestricted user list '
-    #                         'only the first value is used as budget for everyone.')
-    #     return float(user_budgets[0])
-
-    # allowed_user_ids = config['allowed_user_ids'].split(',')
-    # if str(user_id) in allowed_user_ids:
-    #     user_index = allowed_user_ids.index(str(user_id))
-    #     if len(user_budgets) <= user_index:
-    #         logging.warning(f'No budget set for user id: {user_id}. Budget list shorter than user list.')
-    #         return 0.0
-    #     return float(user_budgets[user_index])
-    # return None
-
     # Call Airtable to get budget
 
     # Airtable credentials
@@ -271,82 +249,82 @@ def get_user_budget(config, user_id) -> float | None:
         print(f"Error listing records. Status Code: {list_response.status_code}")
 
 
-def get_remaining_budget(config, usage, update: Update, is_inline=False) -> float:
-    """
-    Calculate the remaining budget for a user based on their current usage.
-    :param config: The bot configuration object
-    :param usage: The usage tracker object
-    :param update: Telegram update object
-    :param is_inline: Boolean flag for inline queries
-    :return: The remaining budget for the user as a float
-    """
-    # Mapping of budget period to cost period
-    budget_cost_map = {
-        "monthly": "cost_month",
-        "daily": "cost_today",
-        "all-time": "cost_all_time"
-    }
+# def get_remaining_budget(config, usage, update: Update, is_inline=False) -> float:
+#     """
+#     Calculate the remaining budget for a user based on their current usage.
+#     :param config: The bot configuration object
+#     :param usage: The usage tracker object
+#     :param update: Telegram update object
+#     :param is_inline: Boolean flag for inline queries
+#     :return: The remaining budget for the user as a float
+#     """
+#     # Mapping of budget period to cost period
+#     budget_cost_map = {
+#         "monthly": "cost_month",
+#         "daily": "cost_today",
+#         "all-time": "cost_all_time"
+#     }
 
-    user_id = update.inline_query.from_user.id if is_inline else update.message.from_user.id
-    name = update.inline_query.from_user.name if is_inline else update.message.from_user.name
-    if user_id not in usage:
-        usage[user_id] = UsageTracker(user_id, name)
+#     user_id = update.inline_query.from_user.id if is_inline else update.message.from_user.id
+#     name = update.inline_query.from_user.name if is_inline else update.message.from_user.name
+#     if user_id not in usage:
+#         usage[user_id] = UsageTracker(user_id, name)
 
-    # Get budget for users
-    user_budget = get_user_budget(config, user_id)
-    budget_period = config['budget_period']
-    if user_budget is not None:
-        cost = usage[user_id].get_current_cost()[budget_cost_map[budget_period]]
-        return user_budget - cost
+#     # Get budget for users
+#     user_budget = get_user_budget(config, user_id)
+#     budget_period = config['budget_period']
+#     if user_budget is not None:
+#         cost = usage[user_id].get_current_cost()[budget_cost_map[budget_period]]
+#         return user_budget - cost
 
-    # Get budget for guests
-    if 'guests' not in usage:
-        usage['guests'] = UsageTracker('guests', 'all guest users in group chats')
-    cost = usage['guests'].get_current_cost()[budget_cost_map[budget_period]]
-    return config['guest_budget'] - cost
-
-
-def is_within_budget(config, usage, update: Update, is_inline=False) -> bool:
-    """
-    Checks if the user reached their usage limit.
-    Initializes UsageTracker for user and guest when needed.
-    :param config: The bot configuration object
-    :param usage: The usage tracker object
-    :param update: Telegram update object
-    :param is_inline: Boolean flag for inline queries
-    :return: Boolean indicating if the user has a positive budget
-    """
-    user_id = update.inline_query.from_user.id if is_inline else update.message.from_user.id
-    name = update.inline_query.from_user.name if is_inline else update.message.from_user.name
-    if user_id not in usage:
-        usage[user_id] = UsageTracker(user_id, name)
-    remaining_budget = get_remaining_budget(config, usage, update, is_inline=is_inline)
-    return remaining_budget > 0
+#     # Get budget for guests
+#     if 'guests' not in usage:
+#         usage['guests'] = UsageTracker('guests', 'all guest users in group chats')
+#     cost = usage['guests'].get_current_cost()[budget_cost_map[budget_period]]
+#     return config['guest_budget'] - cost
 
 
-def add_chat_request_to_usage_tracker(usage, config, user_id, used_tokens):
-    """
-    Returns price.
-    Add chat request to usage tracker
-    :param usage: The usage tracker object
-    :param config: The bot configuration object
-    :param user_id: The user id
-    :param used_tokens: The number of tokens used
-    """
-    try:
-        if int(used_tokens) == 0:
-            logging.warning('No tokens used. Not adding chat request to usage tracker.')
-            return
-        # add chat request to users usage tracker
-        price = usage[user_id].add_chat_tokens(used_tokens, config['token_price'])
-        # add guest chat request to guest usage tracker
-        allowed_user_ids = config['allowed_user_ids'].split(',')
-        if str(user_id) not in allowed_user_ids and 'guests' in usage:
-            usage["guests"].add_chat_tokens(used_tokens, config['token_price'])
-        return price
-    except Exception as e:
-        logging.warning(f'Failed to add tokens to usage_logs: {str(e)}')
-        pass
+# def is_within_budget(config, usage, update: Update, is_inline=False) -> bool:
+#     """
+#     Checks if the user reached their usage limit.
+#     Initializes UsageTracker for user and guest when needed.
+#     :param config: The bot configuration object
+#     :param usage: The usage tracker object
+#     :param update: Telegram update object
+#     :param is_inline: Boolean flag for inline queries
+#     :return: Boolean indicating if the user has a positive budget
+#     """
+#     user_id = update.inline_query.from_user.id if is_inline else update.message.from_user.id
+#     name = update.inline_query.from_user.name if is_inline else update.message.from_user.name
+#     if user_id not in usage:
+#         usage[user_id] = UsageTracker(user_id, name)
+#     remaining_budget = get_remaining_budget(config, usage, update, is_inline=is_inline)
+#     return remaining_budget > 0
+
+
+# def add_chat_request_to_usage_tracker(usage, config, user_id, used_tokens):
+#     """
+#     Returns price.
+#     Add chat request to usage tracker
+#     :param usage: The usage tracker object
+#     :param config: The bot configuration object
+#     :param user_id: The user id
+#     :param used_tokens: The number of tokens used
+#     """
+#     try:
+#         if int(used_tokens) == 0:
+#             logging.warning('No tokens used. Not adding chat request to usage tracker.')
+#             return
+#         # add chat request to users usage tracker
+#         price = usage[user_id].add_chat_tokens(used_tokens, config['token_price'])
+#         # add guest chat request to guest usage tracker
+#         allowed_user_ids = config['allowed_user_ids'].split(',')
+#         if str(user_id) not in allowed_user_ids and 'guests' in usage:
+#             usage["guests"].add_chat_tokens(used_tokens, config['token_price'])
+#         return price
+#     except Exception as e:
+#         logging.warning(f'Failed to add tokens to usage_logs: {str(e)}')
+#         pass
 
 
 def get_reply_to_message_id(config, update: Update):
@@ -437,112 +415,7 @@ def decode_image(imgbase64):
     return base64.b64decode(image)
 
 
-# Get Airtable credentials
-def get_airtable_credentials():
-    airtable_api_key = os.getenv("AIRTABLE_API_KEY")
-    airtable_base_id = os.getenv("AIRTABLE_BASE_ID")
-    airtable_table_id = os.getenv("AIRTABLE_TABLE_ID")
-    return airtable_api_key, airtable_base_id, airtable_table_id
 
-# Get Airtable record by user ID
-async def get_airtable_record(user_id):
-    airtable_api_key, airtable_base_id, airtable_table_id = get_airtable_credentials()
-
-    # Airtable API endpoint
-    airtable_url = f'https://api.airtable.com/v0/{airtable_base_id}/{airtable_table_id}'
-
-    # Headers for the API request
-    headers = {
-        'Authorization': f'Bearer {airtable_api_key}',
-        'Content-Type': 'application/json',
-    }
-
-    # Query parameters to filter records by Telegram User ID
-    params = {
-        'filterByFormula': f"{{Telegram User ID}} = '{user_id}'",
-        'maxRecords': 1  # Assuming there is only one record per user
-    }
-
-    # Perform the GET request to list records
-    list_response = requests.get(airtable_url, headers=headers, params=params)
-
-    if list_response.status_code == 200:
-        records = list_response.json().get('records', [])
-        return records
-    else:
-        print(f"Error listing records. Status Code: {list_response.status_code}")
-        return None
-
-# Update Airtable record with available budget
-async def update_airtable_available_budget(user_id, user_name, available_budget):
-    records = await get_airtable_record(user_id)
-    airtable_api_key, airtable_base_id, airtable_table_id = get_airtable_credentials()
-
-    if records:
-        # Use the ID of the first record (assuming only one record per user)
-        record_id = records[0]['id']
-        logging.info(f'available_budget for {user_name}: {available_budget}')
-        # Fields to be updated
-        record_fields = {
-            "Available Budget": float(available_budget)
-        }
-
-        # Airtable API endpoint
-        airtable_url = f'https://api.airtable.com/v0/{airtable_base_id}/{airtable_table_id}'
-
-        # Headers for the PATCH request
-        headers = {
-            'Authorization': f'Bearer {airtable_api_key}',
-            'Content-Type': 'application/json',
-        }
-
-        # Payload for the PATCH request
-        payload = {
-            "records": [
-                {
-                    "id": record_id,
-                    "fields": record_fields
-                }
-            ]
-        }
-
-        # Perform the PATCH request
-        update_response = requests.patch(airtable_url, headers=headers, json=payload)
-
-        if update_response.status_code == 200:
-            print(f"Record for user {user_name} (ID: {user_id}) updated successfully.")
-        else:
-            print(f"Error updating record for user {user_name} (ID: {user_id}). Status Code: {update_response.status_code}")
-    else:
-        print(f"No record found for user {user_name} (ID: {user_id}).")
-
-
-# Increase Airtable budget by a specified amount
-async def add_airtable_budget(user_id, user_name, amount_to_increase):
-
-    records = await get_airtable_record(user_id)
-
-    if records:
-        existing_budget = records[0].get('fields', {}).get('Available Budget', 0.0)
-        new_budget = existing_budget + amount_to_increase
-
-        await update_airtable_available_budget(user_id, user_name, new_budget)
-    else:
-        print(f"No record found for user {user_name} (ID: {user_id}).")
-
-
-# Decrease Airtable budget by a specified amount
-async def subtract_airtable_budget(user_id, user_name, amount_to_decrease):
-    logging.info(f'{user_name} spent: {amount_to_decrease}')
-    records = await get_airtable_record(user_id)
-
-    if records:
-        existing_budget = records[0].get('fields', {}).get('Available Budget', 0.0)
-        new_budget = existing_budget - amount_to_decrease
-
-        await update_airtable_available_budget(user_id, user_name, new_budget)
-    else:
-        print(f"No record found for user {user_name} (ID: {user_id}).")
 
 # # Create or load assistant
 # def create_openai_assistant(client):
