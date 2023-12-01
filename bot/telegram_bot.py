@@ -5,6 +5,7 @@ import logging
 import os
 import io
 from openai import OpenAI
+from dotenv import load_dotenv
 
 from uuid import uuid4
 from telegram import BotCommandScopeAllGroupChats, Update, constants, LabeledPrice
@@ -13,46 +14,46 @@ from telegram import InputTextMessageContent, BotCommand
 from telegram import PreCheckoutQuery
 from telegram.error import RetryAfter, TimedOut, BadRequest
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, \
-    filters, InlineQueryHandler, CallbackQueryHandler, Application, ContextTypes, CallbackContext, PreCheckoutQueryHandler
+    filters, InlineQueryHandler, CallbackQueryHandler, Application, ContextTypes, CallbackContext, \
+    PreCheckoutQueryHandler
 
 from pydub import AudioSegment
 from PIL import Image
 
-from elevenlabs import generate, set_api_key
-
+import elevenlabs
 
 from utils import is_group_chat, get_thread_id, message_text, wrap_with_indicator, split_into_chunks, \
     edit_message_with_retry, get_stream_cutoff_values, is_allowed, is_admin, \
     get_reply_to_message_id, error_handler, is_direct_result, handle_direct_result, \
     cleanup_intermediate_files
 from openai_helper import OpenAIHelper, localized_text
-from usage_tracker import UsageTracker
+from airtable_helper import get_airtable_record, add_user_to_airtable
 
-
+load_dotenv()
 class ChatGPTTelegramBot:
     """
     Class representing a ChatGPT Telegram Bot.
     """
-    set_api_key("55e6a808342b1d85c5b8aced47c8a2b7")
-    def __init__(self, config: dict, openai: OpenAIHelper):
+
+
+    def __init__(self, config: dict, openai_helper: OpenAIHelper):
         """
         Initializes the bot with the given configuration and GPT bot object.
         :param config: A dictionary containing the bot configuration
-        :param openai: OpenAIHelper object
+        :param openai_helper: OpenAIHelper object
         """
         self.config = config
-        self.openai = openai
+        self.openai_helper = openai_helper
         bot_language = self.config['bot_language']
         self.commands = [
-            BotCommand(command='buy', description=localized_text('buy_description', bot_language)),
             BotCommand(command='help', description=localized_text('help_description', bot_language)),
             BotCommand(command='reset', description=localized_text('reset_description', bot_language)),
-            BotCommand(command='stats', description=localized_text('stats_description', bot_language)),
             BotCommand(command='resend', description=localized_text('resend_description', bot_language))
         ]
         # If imaging is enabled, add the "image" command to the list
         if self.config.get('enable_image_generation', False):
-            self.commands.append(BotCommand(command='image', description=localized_text('image_description', bot_language)))
+            self.commands.append(
+                BotCommand(command='image', description=localized_text('image_description', bot_language)))
 
         if self.config.get('enable_tts_generation', False):
             self.commands.append(BotCommand(command='tts', description=localized_text('tts_description', bot_language)))
@@ -65,65 +66,7 @@ class ChatGPTTelegramBot:
         self.usage = {}
         self.last_message = {}
         self.inline_queries_cache = {}
-        self.client = OpenAI(api_key='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')
-        
-
-    async def buy(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """
-        Sends an invoice to the user for purchasing credits.
-        """
-        try:
-            # Set up the invoice parameters
-            payload = "custom_payload"  # You can customize this
-            provider_token = os.environ.get('PAYMENTS_PROVIDER_TOKEN')
-            currency = "USD"
-
-            # Fetch payment options from environment variable
-            payment_options_str = os.getenv("PAYMENT_OPTIONS", "5,10,20")
-            payment_options = [int(option) for option in payment_options_str.split(",")]
-
-            for option in payment_options:
-                # Set up the invoice parameters dynamically based on the current option
-                title = f"${option} Budget"
-                description = f"Buy ${option} credits to use with all of our models!"
-
-                prices = [LabeledPrice(label='Credits', amount=option * 100)]  # Amount in cents (e.g., $10.00 is 1000 cents)
-
-                # Send the invoice
-                await context.bot.send_invoice(
-                    chat_id=update.effective_chat.id,
-                    title=title,
-                    description=description,
-                    payload=payload,
-                    provider_token=provider_token,
-                    currency=currency,
-                    prices=prices,
-                    start_parameter="optional_start_parameter",
-                    reply_markup=InlineKeyboardMarkup(
-                        [[InlineKeyboardButton(f"Pay ${option} Now", pay=True)]]
-                    ),
-                )
-
-        except Exception as e:
-            logging.exception(e)
-            await update.message.reply_text(
-                message_thread_id=get_thread_id(update),
-                text=f"Error sending invoice: {str(e)}",
-            )
-
-    async def pre_checkout_callback(self, update: Update, context: CallbackContext):
-        """
-        Handle pre-checkout queries.
-        """
-        query: PreCheckoutQuery = update.pre_checkout_query
-        user_id = query.from_user.id
-        await add_airtable_budget(user_id=user_id, user_name=query.from_user.name, amount_to_increase=query.total_amount / 100)
-        payload = query.invoice_payload
-        # Check the payload and perform any necessary actions
-        # For example, you might want to update the user's data or mark the invoice as paid
-
-
-        await query.answer(ok=True)
+        self.client = OpenAI(api_key=os.environ.get('OPENAI_API_KEY'))
 
     async def help(self, update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         """
@@ -142,94 +85,6 @@ class ChatGPTTelegramBot:
                 localized_text('help_text', bot_language)[2]
         )
         await update.message.reply_text(help_text, disable_web_page_preview=True)
-
-    async def stats(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """
-        Returns token usage statistics for current day and month.
-        """
-        if not await is_allowed(self.config, update, context):
-            logging.warning(f'User {update.message.from_user.name} (id: {update.message.from_user.id}) '
-                            f'is not allowed to request their usage statistics')
-            await self.send_disallowed_message(update, context)
-            return
-
-        logging.info(f'User {update.message.from_user.name} (id: {update.message.from_user.id}) '
-                     f'requested their usage statistics')
-
-        user_id = update.message.from_user.id
-        if user_id not in self.usage:
-            self.usage[user_id] = UsageTracker(user_id, update.message.from_user.name)
-
-        tokens_today, tokens_month = self.usage[user_id].get_current_token_usage()
-        images_today, images_month = self.usage[user_id].get_current_image_count()
-        (transcribe_minutes_today, transcribe_seconds_today, transcribe_minutes_month,
-         transcribe_seconds_month) = self.usage[user_id].get_current_transcription_duration()
-        characters_today, characters_month = self.usage[user_id].get_current_tts_usage()
-        current_cost = self.usage[user_id].get_current_cost()
-
-        chat_id = update.effective_chat.id
-        chat_messages, chat_token_length = self.openai.get_conversation_stats(chat_id)
-        # remaining_budget = get_remaining_budget(self.config, self.usage, update)
-        bot_language = self.config['bot_language']
-        
-        text_current_conversation = (
-            f"*{localized_text('stats_conversation', bot_language)[0]}*:\n"
-            f"{chat_messages} {localized_text('stats_conversation', bot_language)[1]}\n"
-            f"{chat_token_length} {localized_text('stats_conversation', bot_language)[2]}\n"
-            f"----------------------------\n"
-        )
-        
-        # Check if image generation is enabled and, if so, generate the image statistics for today
-        text_today_images = ""
-        if self.config.get('enable_image_generation', False):
-            text_today_images = f"{images_today} {localized_text('stats_images', bot_language)}\n"
-
-        text_today_tts = ""
-        if self.config.get('enable_tts_generation', False):
-            text_today_tts = f"{characters_today} {localized_text('stats_tts', bot_language)}\n"
-        
-        text_today = (
-            f"*{localized_text('usage_today', bot_language)}:*\n"
-            f"{tokens_today} {localized_text('stats_tokens', bot_language)}\n"
-            f"{text_today_images}"  # Include the image statistics for today if applicable
-            f"{text_today_tts}"
-            f"{transcribe_minutes_today} {localized_text('stats_transcribe', bot_language)[0]} "
-            f"{transcribe_seconds_today} {localized_text('stats_transcribe', bot_language)[1]}\n"
-            f"{localized_text('stats_total', bot_language)}{current_cost['cost_today']:.2f}\n"
-            f"----------------------------\n"
-        )
-        
-        text_month_images = ""
-        if self.config.get('enable_image_generation', False):
-            text_month_images = f"{images_month} {localized_text('stats_images', bot_language)}\n"
-
-        text_month_tts = ""
-        if self.config.get('enable_tts_generation', False):
-            text_month_tts = f"{characters_month} {localized_text('stats_tts', bot_language)}\n"
-        
-        # Check if image generation is enabled and, if so, generate the image statistics for the month
-        text_month = (
-            f"*{localized_text('usage_month', bot_language)}:*\n"
-            f"{tokens_month} {localized_text('stats_tokens', bot_language)}\n"
-            f"{text_month_images}"  # Include the image statistics for the month if applicable
-            f"{text_month_tts}"
-            f"{transcribe_minutes_month} {localized_text('stats_transcribe', bot_language)[0]} "
-            f"{transcribe_seconds_month} {localized_text('stats_transcribe', bot_language)[1]}\n"
-            f"{localized_text('stats_total', bot_language)}{current_cost['cost_month']:.2f}"
-        )
-
-        # text_budget filled with conditional content
-        text_budget = "\n\n"
-        # No longer works as of July 21st 2023, as OpenAI has removed the billing API
-        # add OpenAI account information for admin request
-        # if is_admin(self.config, user_id):
-        #     text_budget += (
-        #         f"{localized_text('stats_openai', bot_language)}"
-        #         f"{self.openai.get_billing_current_month():.2f}"
-        #     )
-
-        usage_text = text_current_conversation + text_today + text_month + text_budget
-        await update.message.reply_text(usage_text, parse_mode=constants.ParseMode.MARKDOWN)
 
     async def resend(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """
@@ -274,99 +129,11 @@ class ChatGPTTelegramBot:
 
         chat_id = update.effective_chat.id
         reset_content = message_text(update.message)
-        self.openai.reset_chat_history(chat_id=chat_id, content=reset_content)
+        self.openai_helper.reset_chat_history(chat_id=chat_id, content=reset_content)
         await update.effective_message.reply_text(
             message_thread_id=get_thread_id(update),
             text=localized_text('reset_done', self.config['bot_language'])
         )
-
-    async def image(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """
-        Generates an image for the given prompt using DALL·E APIs
-        """
-        if not self.config['enable_image_generation'] \
-                or not await self.check_allowed_and_within_budget(update, context):
-            return
-
-        image_query = message_text(update.message)
-        if image_query == '':
-            await update.effective_message.reply_text(
-                message_thread_id=get_thread_id(update),
-                text=localized_text('image_no_prompt', self.config['bot_language'])
-            )
-            return
-
-        logging.info(f'New image generation request received from user {update.message.from_user.name} '
-                     f'(id: {update.message.from_user.id})')
-
-        async def _generate():
-            try:
-                image_url, image_size = await self.openai.generate_image(prompt=image_query)
-                if self.config['image_receive_mode'] == 'photo':
-                    await update.effective_message.reply_photo(
-                        reply_to_message_id=get_reply_to_message_id(self.config, update),
-                        photo=image_url
-                    )
-                elif self.config['image_receive_mode'] == 'document':
-                    await update.effective_message.reply_document(
-                        reply_to_message_id=get_reply_to_message_id(self.config, update),
-                        document=image_url
-                    )
-                else:
-                    raise Exception(f"env variable IMAGE_RECEIVE_MODE has invalid value {self.config['image_receive_mode']}")
-                # add image request to users usage tracker
-                user_id = update.message.from_user.id
-                price = self.usage[user_id].add_image_request(image_size, self.config['image_prices'])
-
-            except Exception as e:
-                logging.exception(e)
-                await update.effective_message.reply_text(
-                    message_thread_id=get_thread_id(update),
-                    reply_to_message_id=get_reply_to_message_id(self.config, update),
-                    text=f"{localized_text('image_fail', self.config['bot_language'])}: {str(e)}",
-                    parse_mode=constants.ParseMode.MARKDOWN
-                )
-
-        await wrap_with_indicator(update, context, _generate, constants.ChatAction.UPLOAD_PHOTO)
-
-    async def tts(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """
-        Generates an speech for the given input using TTS APIs
-        """
-
-        tts_query = message_text(update.message)
-        if tts_query == '':
-            await update.effective_message.reply_text(
-                message_thread_id=get_thread_id(update),
-                text=localized_text('tts_no_prompt', self.config['bot_language'])
-            )
-            return
-
-        logging.info(f'New speech generation request received from user {update.message.from_user.name} '
-                     f'(id: {update.message.from_user.id})')
-
-        async def _generate():
-            try:
-                speech_file, text_length = await self.openai.generate_speech(text=tts_query)
-
-                await update.effective_message.reply_voice(
-                    reply_to_message_id=get_reply_to_message_id(self.config, update),
-                    voice=speech_file
-                )
-                speech_file.close()
-                # add image request to users usage tracker
-                user_id = update.message.from_user.id
-
-            except Exception as e:
-                logging.exception(e)
-                await update.effective_message.reply_text(
-                    message_thread_id=get_thread_id(update),
-                    reply_to_message_id=get_reply_to_message_id(self.config, update),
-                    text=f"{localized_text('tts_fail', self.config['bot_language'])}: {str(e)}",
-                    parse_mode=constants.ParseMode.MARKDOWN
-                )
-
-        await wrap_with_indicator(update, context, _generate, constants.ChatAction.UPLOAD_VOICE)
 
     async def transcribe(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """
@@ -417,95 +184,92 @@ class ChatGPTTelegramBot:
                 return
 
             user_id = update.message.from_user.id
-            if user_id not in self.usage:
-                self.usage[user_id] = UsageTracker(user_id, update.message.from_user.name)
 
             try:
-                transcript = await self.openai.transcribe(filename_mp3)
+                transcript = await self.openai_helper.transcribe(filename_mp3)
 
-                if self.config['voice_reply_transcript']:
+                # Get the response of the transcript
+                # response, total_tokens = await self.openai.get_chat_response(chat_id=chat_id, query=transcript)
+                thread_id = ""
+                airtable_records = await get_airtable_record(update.message.from_user.id)
 
-                    # Split into chunks of 4096 characters (Telegram's message limit)
-                    transcript_output = f"_{localized_text('transcript', bot_language)}:_\n\"{transcript}\""
-                    chunks = split_into_chunks(transcript_output)
-
-                    for index, transcript_chunk in enumerate(chunks):
-                        await update.effective_message.reply_text(
-                            message_thread_id=get_thread_id(update),
-                            reply_to_message_id=get_reply_to_message_id(self.config, update) if index == 0 else None,
-                            text=transcript_chunk,
-                            parse_mode=constants.ParseMode.MARKDOWN
-                        )
+                if not airtable_records:
+                    my_thread = self.client.beta.threads.create()
+                    thread_id = my_thread.id
+                    print(f"Created new thread with id: {my_thread.id} \n")
+                    await add_user_to_airtable(update.message.from_user.id, update.message.from_user.name, thread_id)
                 else:
-                    # Get the response of the transcript
-                    # response, total_tokens = await self.openai.get_chat_response(chat_id=chat_id, query=transcript)
-                    thread_idd="thread_ik91Zrv3R7tDgg7Y887nuDxC"
-                    my_thread_message = self.client.beta.threads.messages.create(
-                      thread_id=thread_idd,
-                      role="user",
-                      content=transcript,
+                    print("Records found")
+                    thread_id = airtable_records[0]['fields']['OpenAI Assistants API Thread ID'] if airtable_records else None
+                    print(f"Found thread id: {thread_id} \n")
+                self.client.beta.threads.messages.create(
+                    thread_id=thread_id,
+                    role="user",
+                    content=transcript,
+                )
+                # content should be transcript
+
+                my_run = self.client.beta.threads.runs.create(
+                    thread_id=thread_id,
+                    assistant_id=os.environ.get("OPENAI_ASSISTANT_ID")
+                )
+                print(f"This is the run object: {my_run} \n")
+
+                # Step 5: Periodically retrieve the Run to check on its status to see if it has moved to completed
+                while my_run.status != "completed":
+                    keep_retrieving_run = self.client.beta.threads.runs.retrieve(
+                        thread_id=thread_id,
+                        run_id=my_run.id
+                    )
+                    print(f"Run status: {keep_retrieving_run.status}")
+
+                    if keep_retrieving_run.status == "completed":
+                        print("\n")
+                        break
+
+                # Step 6: Retrieve the Messages added by the Assistant to the Thread
+                all_messages = self.client.beta.threads.messages.list(
+                    thread_id=thread_id
+                )
+
+                response = all_messages.data[0].content[0].text.value
+                elevenlabs.set_api_key(os.environ.get('ELEVENLABS_API_KEY'))
+                audio = elevenlabs.generate(
+                    text=response,
+                    voice="Bella",
+                    model="eleven_multilingual_v2"
+                )
+
+                try:
+                    await update.effective_message.reply_voice(
+                        reply_to_message_id=get_reply_to_message_id(self.config, update),
+                        voice=audio
                     )
 
-                    my_run = self.client.beta.threads.runs.create(
-                        thread_id=thread_idd,
-                        assistant_id=os.environ.get("OPENAI_ASSISTANT_ID")
-                    )
-                    print(f"This is the run object: {my_run} \n")
-
-                    # Step 5: Periodically retrieve the Run to check on its status to see if it has moved to completed
-                    while my_run.status != "completed":
-                        keep_retrieving_run = self.client.beta.threads.runs.retrieve(
-                            thread_id=thread_idd,
-                            run_id=my_run.id
-                        )
-                        print(f"Run status: {keep_retrieving_run.status}")
-
-                        if keep_retrieving_run.status == "completed":
-                            print("\n")
-                            break
-
-                    # Step 6: Retrieve the Messages added by the Assistant to the Thread
-                    all_messages = self.client.beta.threads.messages.list(
-                        thread_id=thread_idd
+                except Exception as e:
+                    logging.exception(e)
+                    await update.effective_message.reply_text(
+                        message_thread_id=get_thread_id(update),
+                        reply_to_message_id=get_reply_to_message_id(self.config, update),
+                        text=f"{localized_text('tts_fail', self.config['bot_language'])}: {str(e)}",
+                        parse_mode=constants.ParseMode.MARKDOWN
                     )
 
-                    response = all_messages.data[0].content[0].text.value
+                # Split into chunks of 4096 characters (Telegram's message limit)
+                transcript_output = (
+                    f"This message is only for debugging purposes. It will be removed in production. \n\n"
+                    f"_{localized_text('transcript', bot_language)}:_\n\"{transcript}\"\n\n"
+                    f"_{localized_text('answer', bot_language)}:_\n{response}"
+                )
+                chunks = split_into_chunks(transcript_output)
 
-                    audio = generate(
-                        text="oblivion awaits",
-                        voice="Bella",
-                        model="eleven_multilingual_v2"
+                for index, transcript_chunk in enumerate(chunks):
+                    await update.effective_message.reply_text(
+                        message_thread_id=get_thread_id(update),
+                        reply_to_message_id=get_reply_to_message_id(self.config, update) if index == 0 else None,
+                        text=transcript_chunk,
+                        parse_mode=constants.ParseMode.MARKDOWN
                     )
-
-                    try:
-                        await update.effective_message.reply_voice(
-                            reply_to_message_id=get_reply_to_message_id(self.config, update),
-                            voice=audio
-                        )
-
-                    except Exception as e:
-                        logging.exception(e)
-                        await update.effective_message.reply_text(
-                            message_thread_id=get_thread_id(update),
-                            reply_to_message_id=get_reply_to_message_id(self.config, update),
-                            text=f"{localized_text('tts_fail', self.config['bot_language'])}: {str(e)}",
-                            parse_mode=constants.ParseMode.MARKDOWN
-                        )
-
-                    # Split into chunks of 4096 characters (Telegram's message limit)
-                    transcript_output = (
-                        f"_{localized_text('transcript', bot_language)}:_\n\"{transcript}\"\n\n"
-                        f"_{localized_text('answer', bot_language)}:_\n{response}"
-                    )
-                    chunks = split_into_chunks(transcript_output)
-
-                    for index, transcript_chunk in enumerate(chunks):
-                        await update.effective_message.reply_text(
-                            message_thread_id=get_thread_id(update),
-                            reply_to_message_id=get_reply_to_message_id(self.config, update) if index == 0 else None,
-                            text=transcript_chunk,
-                            parse_mode=constants.ParseMode.MARKDOWN
-                        )
 
             except Exception as e:
                 logging.exception(e)
@@ -523,10 +287,8 @@ class ChatGPTTelegramBot:
 
         await wrap_with_indicator(update, context, _execute, constants.ChatAction.TYPING)
 
-    
-
     async def prompt(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        
+
         """
         React to incoming messages and respond accordingly.
         """
@@ -564,10 +326,9 @@ class ChatGPTTelegramBot:
         try:
             total_tokens = 0
 
-        
             async def _reply():
                 nonlocal total_tokens
-                response, total_tokens = await self.openai.get_chat_response(chat_id=chat_id, query=prompt)
+                response, total_tokens = await self.openai_helper.get_chat_response(chat_id=chat_id, query=prompt)
 
                 if is_direct_result(response):
                     return await handle_direct_result(self.config, update, response)
@@ -597,8 +358,8 @@ class ChatGPTTelegramBot:
 
             await wrap_with_indicator(update, context, _reply, constants.ChatAction.TYPING)
 
-        #price = add_chat_request_to_usage_tracker(self.usage, self.config, user_id, total_tokens)
-        #await subtract_airtable_budget(update.message.from_user.id, update.message.from_user.name, price)
+        # price = add_chat_request_to_usage_tracker(self.usage, self.config, user_id, total_tokens)
+        # await subtract_airtable_budget(update.message.from_user.id, update.message.from_user.name, price)
 
         except Exception as e:
             logging.exception(e)
@@ -688,7 +449,7 @@ class ChatGPTTelegramBot:
 
                 unavailable_message = localized_text("function_unavailable_in_inline_mode", bot_language)
                 if self.config['stream']:
-                    stream_response = self.openai.get_chat_response_stream(chat_id=user_id, query=query)
+                    stream_response = self.openai_helper.get_chat_response_stream(chat_id=user_id, query=query)
                     i = 0
                     prev = ''
                     backoff = 0
@@ -756,7 +517,7 @@ class ChatGPTTelegramBot:
                                                             parse_mode=constants.ParseMode.MARKDOWN)
 
                         logging.info(f'Generating response for inline query by {name}')
-                        response, total_tokens = await self.openai.get_chat_response(chat_id=user_id, query=query)
+                        response, total_tokens = await self.openai_helper.get_chat_response(chat_id=user_id, query=query)
 
                         if is_direct_result(response):
                             cleanup_intermediate_files(response)
@@ -778,8 +539,8 @@ class ChatGPTTelegramBot:
                     await wrap_with_indicator(update, context, _send_inline_query_response,
                                               constants.ChatAction.TYPING, is_inline=True)
 
-                #price = add_chat_request_to_usage_tracker(self.usage, self.config, user_id, total_tokens)
-                #await subtract_airtable_budget(update.message.from_user.id, update.message.from_user.name, price)
+                # price = add_chat_request_to_usage_tracker(self.usage, self.config, user_id, total_tokens)
+                # await subtract_airtable_budget(update.message.from_user.id, update.message.from_user.name, price)
 
         except Exception as e:
             logging.error(f'Failed to respond to an inline query via button callback: {e}')
@@ -811,8 +572,6 @@ class ChatGPTTelegramBot:
         #     return False
 
         return True
-
-
 
     async def send_disallowed_message(self, update: Update, _: ContextTypes.DEFAULT_TYPE, is_inline=False):
         """
@@ -859,14 +618,10 @@ class ChatGPTTelegramBot:
             .post_init(self.post_init) \
             .concurrent_updates(True) \
             .build()
-        
-        application.add_handler(CommandHandler('buy', self.buy))
+
         application.add_handler(CommandHandler('reset', self.reset))
         application.add_handler(CommandHandler('help', self.help))
-        application.add_handler(CommandHandler('image', self.image))
-        application.add_handler(CommandHandler('tts', self.tts))
         application.add_handler(CommandHandler('start', self.help))
-        application.add_handler(CommandHandler('stats', self.stats))
         application.add_handler(CommandHandler('resend', self.resend))
         application.add_handler(CommandHandler(
             'chat', self.prompt, filters=filters.ChatType.GROUP | filters.ChatType.SUPERGROUP)
@@ -876,7 +631,6 @@ class ChatGPTTelegramBot:
             filters.VIDEO | filters.VIDEO_NOTE | filters.Document.VIDEO,
             self.transcribe))
         application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), self.prompt))
-        application.add_handler(PreCheckoutQueryHandler(self.pre_checkout_callback))
         application.add_handler(InlineQueryHandler(self.inline_query, chat_types=[
             constants.ChatType.GROUP, constants.ChatType.SUPERGROUP, constants.ChatType.PRIVATE
         ]))

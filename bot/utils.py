@@ -19,8 +19,6 @@ from telegram.ext import CallbackContext, ContextTypes
 
 import requests
 
-from usage_tracker import UsageTracker
-
 
 def message_text(message: Message) -> str:
     """
